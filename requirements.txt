@@ -1,0 +1,2 @@
+# Instala el proyecto (y sus dependencias) en modo editable.
+-e .

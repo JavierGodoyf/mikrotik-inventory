@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% set editing = device is not none %}
+{% block title %}{{ 'Editar' if editing else 'Añadir' }} equipo · MikroTik Inventory{% endblock %}
+
+{% block content %}
+<section class="head">
+  <div>
+    <h1>{{ 'Editar equipo' if editing else 'Añadir equipo' }}</h1>
+    <p class="muted">Las credenciales se guardan cifradas y solo se usan para leer.</p>
+  </div>
+</section>
+
+<form class="card" method="post" action="{{ '/devices/' ~ device.id ~ '/edit' if editing else '/devices' }}">
+  <div class="row">
+    <label>Nombre
+      <input name="name" required value="{{ device.name if editing else prefill.get('name', '') }}" placeholder="hAP oficina">
+    </label>
+    <label>Host o IP
+      <input name="host" required value="{{ device.host if editing else prefill.get('host', '') }}" placeholder="192.168.1.1">
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Transporte
+      <select name="transport">
+        <option value="api" {{ 'selected' if (device.transport if editing else 'api') == 'api' }}>api (8728, LAN)</option>
+        <option value="api_ssl" {{ 'selected' if editing and device.transport == 'api_ssl' }}>api-ssl (8729, público)</option>
+      </select>
+    </label>
+    <label>Puerto
+      <input name="port" type="number" value="{{ device.port if editing else 8728 }}">
+    </label>
+    <label>Red
+      <select name="network">
+        <option value="lan" {{ 'selected' if (device.network if editing else 'lan') == 'lan' }}>LAN (timeout corto)</option>
+        <option value="public" {{ 'selected' if editing and device.network == 'public' }}>IP pública (timeout largo)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Usuario
+      <input name="username" value="{{ device.username if editing else 'panel' }}">
+    </label>
+    <label>Contraseña
+      <input name="password" type="password" autocomplete="new-password"
+             placeholder="{{ 'dejar en blanco para no cambiarla' if editing else 'obligatoria' }}"
+             {{ '' if editing else 'required' }}>
+    </label>
+  </div>
+
+  <div class="row">
+    <label>Canal preferido
+      <select name="channel">
+        <option value="stable" {{ 'selected' if (device.channel if editing else 'stable') == 'stable' }}>stable</option>
+        <option value="long-term" {{ 'selected' if editing and device.channel == 'long-term' }}>long-term</option>
+      </select>
+    </label>
+    <label>Sitio
+      <input name="site" value="{{ device.site if editing else '' }}" placeholder="Madrid">
+    </label>
+    <label>Etiquetas
+      <input name="tags" value="{{ device.tags if editing else '' }}" placeholder="backup, cliente-x">
+    </label>
+  </div>
+
+  <label>Notas
+    <textarea name="notes" rows="3">{{ device.notes if editing else '' }}</textarea>
+  </label>
+
+  <div class="row checks">
+    <label class="inline">
+      <input type="checkbox" name="enabled" {{ 'checked' if (device.enabled if editing else True) }}>
+      Comprobar automáticamente
+    </label>
+    <label class="inline">
+      <input type="checkbox" name="verify_tls" {{ 'checked' if editing and device.verify_tls }}>
+      Verificar certificado TLS (solo api-ssl)
+    </label>
+  </div>
+
+  <div class="actions">
+    <button class="primary" type="submit">{{ 'Guardar cambios' if editing else 'Añadir equipo' }}</button>
+    <a class="button ghost" href="{{ '/devices/' ~ device.id if editing else '/' }}">Cancelar</a>
+  </div>
+</form>
+
+<script>
+  const transport = document.querySelector('[name="transport"]');
+  const port = document.querySelector('[name="port"]');
+  transport?.addEventListener('change', () => {
+    if (port.value === '8728' || port.value === '8729' || port.value === '') {
+      port.value = transport.value === 'api_ssl' ? 8729 : 8728;
+    }
+  });
+</script>
+
+<aside class="hint">
+  <h3>En el router</h3>
+  <pre>/user group add name=monitor policy=read,api
+/user add name=panel group=monitor password=&lt;aleatoria&gt; address=&lt;tu IP&gt;</pre>
+  <p class="muted small">
+    Para equipos con IP pública usa <code>api-ssl</code> y limita el puerto 8729 a tu IP de origen.
+    El panel nunca escribe en el router.
+  </p>
+</aside>
+{% endblock %}

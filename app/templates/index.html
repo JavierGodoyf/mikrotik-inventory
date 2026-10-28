@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Equipos · MikroTik Inventory{% endblock %}
+
+{% block content %}
+<section class="head">
+  <div>
+    <h1>Equipos</h1>
+    <p class="muted">
+      {{ total }} equipos · comprobación automática cada {{ interval_hours }} h
+      {% if next_run %}· próxima {{ next_run | local }}{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/check-all">
+    <button class="primary" type="submit">Comprobar todo</button>
+  </form>
+</section>
+
+{% if counts %}
+<div class="chips">
+  {% for status in ORDER %}
+    {% if counts.get(status) %}
+      <span class="chip {{ CSS.get(status, 'muted') }}">
+        {{ LABELS.get(status, status) }} <b>{{ counts[status] }}</b>
+      </span>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Equipo</th>
+      <th>Modelo</th>
+      <th>Canal</th>
+      <th>Instalada</th>
+      <th>Última</th>
+      <th>RouterBOOT</th>
+      <th>Estado</th>
+      <th>Chequeo</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      {% set device = row.device %}
+      {% set check = row.check %}
+      <tr>
+        <td>
+          <a class="name" href="/devices/{{ device.id }}">{{ device.name }}</a>
+          <span class="mono muted">{{ device.host }}:{{ device.port }}</span>
+          {% if not device.enabled %}<span class="badge muted">off</span>{% endif %}
+        </td>
+        <td>
+          {% if check %}
+            <span>{{ check.board_name or '—' }}</span>
+            <span class="mono muted">{{ check.architecture or '' }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="mono">{{ device.channel }}</td>
+        <td class="mono">{{ check.installed_version if check else '—' }}</td>
+        <td class="mono">{{ check.target_version if check else '—' }}</td>
+        <td>
+          {% if check and check.routerboot_outdated %}
+            <span class="badge warn" title="{{ check.routerboot_current }} → {{ check.routerboot_upgrade }}">pendiente</span>
+          {% elif check and check.routerboot_current %}
+            <span class="mono muted">{{ check.routerboot_current }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if check %}
+            <span class="badge {{ CSS.get(check.status, 'muted') }}">{{ LABELS.get(check.status, check.status) }}</span>
+          {% else %}
+            <span class="badge muted">Sin datos</span>
+          {% endif %}
+        </td>
+        <td class="muted small">{{ (check.started_at | local) if check else '—' }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <h2>Sin equipos todavía</h2>
+  <p>Añade uno a mano o descubre los que haya en tu red local.</p>
+  <p>
+    <a class="button" href="/discover">Descubrir en la LAN</a>
+    <a class="button ghost" href="/devices/new">Añadir manualmente</a>
+  </p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Descubrir · MikroTik Inventory{% endblock %}
+
+{% block content %}
+<section class="head">
+  <div>
+    <h1>Descubrir en la LAN</h1>
+    <p class="muted">MNDP (UDP 5678): identidad, modelo y versión sin credenciales. Puede tardar unos segundos.</p>
+  </div>
+  <a class="button ghost" href="/discover">Volver a escanear</a>
+</section>
+
+{% if error %}
+  <div class="verdict bad"><p>{{ error }}</p></div>
+{% elif devices %}
+  <table>
+    <thead>
+      <tr><th>Identidad</th><th>IP</th><th>Versión</th><th>Modelo</th><th>Plataforma</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for item in devices %}
+        <tr>
+          <td><strong>{{ item.get('identity', '—') }}</strong><span class="mono muted">{{ item.get('mac', '') }}</span></td>
+          <td class="mono">{{ item.get('ipv4', '—') }}</td>
+          <td class="mono">{{ item.get('version', '—') }}</td>
+          <td>{{ item.get('board', '—') }}</td>
+          <td class="mono muted">{{ item.get('platform', '—') }}</td>
+          <td>
+            <a class="button ghost small"
+               href="/devices/new?name={{ (item.get('identity') or '') | urlencode }}&host={{ (item.get('ipv4') or '') | urlencode }}">
+              Añadir
+            </a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">El descubrimiento no trae RouterBOOT ni el canal; para eso hace falta la API con credenciales.</p>
+{% else %}
+  <div class="empty">
+    <h2>Ningún vecino MNDP</h2>
+    <p>Comprueba que estás en la misma red y que los equipos tienen el descubrimiento activo en esa interfaz.</p>
+    <p class="muted small">Si macOS bloquea la red local, el error aparecerá aquí.</p>
+  </div>
+{% endif %}
+{% endblock %}

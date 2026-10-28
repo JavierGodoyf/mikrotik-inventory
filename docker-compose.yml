@@ -1,0 +1,21 @@
+services:
+  panel:
+    build: .
+    image: mikrotik-inventory:0.1.0
+    container_name: mikrotik-inventory
+    restart: unless-stopped
+    ports:
+      # Solo accesible desde el propio host. Para verlo desde otro sitio,
+      # usa un túnel SSH o Tailscale en vez de abrir 0.0.0.0.
+      - "127.0.0.1:8000:8000"
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      MTIK_CHECK_INTERVAL_HOURS: "6"
+      MTIK_SCHEDULER_ENABLED: "true"
+    volumes:
+      - mtik-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  mtik-data:

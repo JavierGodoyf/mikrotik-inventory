@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}MikroTik Inventory{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">mikrotik<span>.inventory</span></a>
+    <nav>
+      <a href="/">Equipos</a>
+      <a href="/discover">Descubrir</a>
+      <a href="/report.csv">CSV</a>
+      <a href="/devices/new">Añadir</a>
+    </nav>
+  </header>
+
+  <main>
+    {% if request.query_params.get('msg') %}
+      <div class="flash">{{ request.query_params.get('msg') }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    Solo lectura · RouterOS API · {{ request.url.hostname or 'localhost' }}
+  </footer>
+</body>
+</html>

@@ -1,0 +1,13 @@
+* text=auto
+
+# Estos archivos se ejecutan o se leen en Linux/macOS: siempre LF.
+*.sh text eol=lf
+*.ps1 text eol=crlf
+Dockerfile text eol=lf
+*.service text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf

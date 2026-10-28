@@ -1,0 +1,29 @@
+[Unit]
+Description=MikroTik Inventory (panel de versiones)
+Documentation=file:///opt/mikrotik-inventory/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mtik
+Group=mtik
+WorkingDirectory=/opt/mikrotik-inventory
+Environment=MTIK_BASE_DIR=/opt/mikrotik-inventory
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/opt/mikrotik-inventory/.env
+ExecStart=/opt/mikrotik-inventory/.venv/bin/mikrotik-panel
+Restart=on-failure
+RestartSec=5
+
+# Endurecimiento básico
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mikrotik-inventory/data
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
