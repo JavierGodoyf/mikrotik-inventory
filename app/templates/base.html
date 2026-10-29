@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}MikroTik Inventory{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/">mikrotik<span>.inventory</span></a>
     <nav>
       <a href="/">Equipos</a>
+      {% if WG_ENABLED %}<a href="/watchguard">WatchGuard</a>{% endif %}
       <a href="/discover">Descubrir</a>
       <a href="/report.csv">CSV</a>
       <a href="/devices/new">Añadir</a>

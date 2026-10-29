@@ -11,6 +11,8 @@ pueden ejecutar. Solo lee: no instala nada, no reinicia nada y no cambia configu
 - Histórico de comprobaciones, export CSV y JSON.
 - Descubrimiento en LAN por MNDP (sin credenciales).
 - Scheduler propio cada N horas.
+- Sección **WatchGuard** opcional: Fireboxes de todos los clientes de WatchGuard Cloud y las
+  vulnerabilidades que les afectan según psirt.watchguard.com (ver [WatchGuard](#watchguard)).
 
 ## Requisitos
 
@@ -184,6 +186,34 @@ sobre la de `upgrade.mikrotik.com`.
 - `GET /api/devices` JSON
 - `GET /report.csv` export
 - `GET /healthz` estado + versiones en caché
+- `GET /watchguard`, `GET /api/watchguard`, `POST /watchguard/refresh` (si WatchGuard está activo)
+
+## WatchGuard
+
+Sección opcional para los Fireboxes de un **Service Provider** de WatchGuard Cloud. Solo lee:
+recorre la cuenta propia y todas las cuentas de cliente, y cruza la versión de Fireware de cada
+equipo con los avisos de https://psirt.watchguard.com/.
+
+1. En WatchGuard Cloud: **Administración > Managed Access**, activa el acceso a la API y crea un
+   Access ID de **solo lectura**. Copia la URL base, el ID de cuenta (`WGC-...`), el Access ID,
+   la contraseña y la API Key.
+2. Rellena el bloque `WG_*` de `.env` (ver `.env.example`). Con Docker, `docker-compose.yml`
+   ya lo carga. Para probar sin credenciales: `WG_DEMO=1`.
+3. Reinicia el panel: aparece **WatchGuard** en el menú.
+
+Cada `WG_CHECK_INTERVAL_HOURS` (por defecto el mismo intervalo que los MikroTik) se guarda una
+lectura en la tabla `wg_runs` de la misma SQLite (se conservan las últimas 200). La página
+muestra la última lectura buena; si la siguiente falla, lo avisa y sigue mostrando esos datos.
+
+| Estado | Significado |
+|---|---|
+| `Crítico` | Le afecta un aviso de gravedad `WG_ALERT_SEVERITY` (critical, o high) o mayor. |
+| `Desactualizado` | No está en la última versión de su rama (2025+, 12.x o T15/T35 12.5.x). |
+| `Actualizado` | En la última versión de su rama y sin avisos de esa gravedad. |
+
+La última versión de cada rama sale de los avisos de WatchGuard (la versión corregida más alta),
+o de `WG_LATEST_FIREWARE` si se fuerza a mano. En la tabla, el desplegable de cada equipo lista
+todas sus vulnerabilidades con la versión que las corrige.
 
 ## Seguridad
 
@@ -213,6 +243,7 @@ app/
   compat.py      arquitecturas v7 y umbral de flash
   versions.py    parseo/comparación de versiones
   mikrotik/      cliente API, collector y MNDP
+  watchguard/    WatchGuard Cloud, avisos PSIRT, resumen y lecturas guardadas
   templates/     Jinja (empaquetado con el paquete)
   static/        CSS
 deploy/          unidad systemd

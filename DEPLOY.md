@@ -191,6 +191,13 @@ el directorio de trabajo (`MTIK_BASE_DIR`). Lo más habitual:
 | `MTIK_MAX_CONCURRENCY` | `8` | chequeos en paralelo |
 | `MTIK_SCHEDULER_ENABLED` | `true` | |
 | `MTIK_HOST` / `MTIK_PORT` | `127.0.0.1` / `8000` | |
+| `WG_ACCOUNT_ID`, `WG_ACCESS_ID`, `WG_PASSWORD`, `WG_API_KEY` | vacío | activan la sección WatchGuard |
+| `WG_BASE_URL` / `WG_AUTH_URL` | `api.usa.cloud.watchguard.com` | región de WatchGuard Cloud |
+| `WG_DEMO` | `false` | Fireboxes de ejemplo, sin credenciales |
+| `WG_CHECK_INTERVAL_HOURS` | `MTIK_CHECK_INTERVAL_HOURS` | |
+
+Con Docker, las variables `WG_*` se leen del `.env` del proyecto (`env_file` en
+`docker-compose.yml`); el resto de la tabla se fija en `environment`.
 
 No uses `--workers > 1`: el scheduler vive en el proceso y se duplicaría.
 

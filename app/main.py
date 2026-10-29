@@ -21,6 +21,8 @@ from .db import get_session, init_db
 from .evaluate import STATUS_CSS, STATUS_LABELS, STATUS_ORDER
 from .mikrotik.discovery import DiscoveryError, discover
 from .models import Check, Device, LatestCache
+from .watchguard import service as watchguard
+from .watchguard.config import get_wg_settings
 
 
 @asynccontextmanager
@@ -38,7 +40,9 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 templates.env.filters["local"] = lambda value: (
     to_local(value).strftime("%Y-%m-%d %H:%M") if value else "—"
 )
-templates.env.globals.update(LABELS=STATUS_LABELS, CSS=STATUS_CSS, ORDER=STATUS_ORDER)
+templates.env.globals.update(
+    LABELS=STATUS_LABELS, CSS=STATUS_CSS, ORDER=STATUS_ORDER, WG_ENABLED=get_wg_settings().active
+)
 
 
 # --------------------------------------------------------------------------- helpers
@@ -335,4 +339,54 @@ def healthz(session: Session = Depends(get_session)):
         f"{row.line}/{row.channel}": row.version
         for row in session.scalars(select(LatestCache)).all()
     }
-    return {"status": "ok", "devices": sum(counts.values()), "counts": counts, "latest": cached}
+    health = {"status": "ok", "devices": sum(counts.values()), "counts": counts, "latest": cached}
+    if get_wg_settings().active:
+        last, good = watchguard.last_runs(session)
+        health["watchguard"] = {
+            "devices": good.total if good else 0,
+            "critical": good.critical if good else 0,
+            "last_run": last.started_at.isoformat() if last else None,
+            "last_ok": bool(last and last.ok),
+        }
+    return health
+
+
+# --------------------------------------------------------------------------- WatchGuard
+
+
+def _require_watchguard() -> None:
+    if not get_wg_settings().active:
+        raise HTTPException(status_code=404, detail="WatchGuard no está configurado (variables WG_* en .env)")
+
+
+@app.get("/watchguard")
+def watchguard_page(request: Request):
+    _require_watchguard()
+    return templates.TemplateResponse(
+        request=request,
+        name="watchguard.html",
+        context={
+            "next_run": scheduler.next_run("wg-refresh"),
+            "interval_hours": get_wg_settings().interval_hours,
+        },
+    )
+
+
+@app.get("/api/watchguard")
+def api_watchguard(background: BackgroundTasks, session: Session = Depends(get_session)):
+    _require_watchguard()
+    payload = watchguard.status_payload(session)
+    # Primera visita sin ninguna lectura guardada: se lanza una sin esperar al scheduler.
+    if payload["lastAttemptAt"] is None and not payload["running"]:
+        background.add_task(watchguard.refresh)
+        payload["running"] = True
+    return payload
+
+
+@app.post("/watchguard/refresh")
+def watchguard_refresh(background: BackgroundTasks):
+    _require_watchguard()
+    if watchguard.is_running():
+        return _redirect("/watchguard", "Ya hay una lectura de WatchGuard Cloud en marcha.")
+    background.add_task(watchguard.refresh)
+    return _redirect("/watchguard", "Lectura de WatchGuard Cloud en marcha.")

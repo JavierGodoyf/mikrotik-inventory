@@ -86,3 +86,22 @@ class LatestCache(Base):
     version: Mapped[str] = mapped_column(String(40))
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class WgRun(Base):
+    """Una lectura completa de WatchGuard Cloud: totales y el resumen que pinta /watchguard."""
+
+    __tablename__ = "wg_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+    outdated: Mapped[int] = mapped_column(Integer, default=0)
+    critical: Mapped[int] = mapped_column(Integer, default=0)
+
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)

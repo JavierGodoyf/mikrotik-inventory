@@ -227,3 +227,56 @@ footer { max-width: 1180px; margin: 0 auto; padding: 0 28px 40px; color: #5b6675
   .head { flex-direction: column; }
   table { display: block; overflow-x: auto; }
 }
+
+/* ---------------------------------------------------------------- WatchGuard */
+
+.badge.high { background: #3a2210; color: #ffb27a; border-color: #6b3a17; }
+.nowrap { white-space: nowrap; }
+
+.wg-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.wg-kpi { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--info); border-radius: 10px; padding: 14px 16px; }
+.wg-kpi h3 { margin-bottom: 4px; }
+.wg-kpi > b { font-size: 28px; }
+.wg-kpi.ok { border-left-color: var(--ok); } .wg-kpi.ok > b { color: var(--ok); }
+.wg-kpi.warn { border-left-color: var(--warn); } .wg-kpi.warn > b { color: var(--warn); }
+.wg-kpi.bad { border-left-color: var(--bad); } .wg-kpi.bad > b { color: var(--bad); }
+.wg-versions { display: flex; flex-direction: column; gap: 4px; }
+.wg-versions div { display: flex; justify-content: space-between; gap: 8px; }
+
+.wg-row { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 12px; }
+.wg-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.wg-panel p { margin: 0 0 10px; }
+.wg-chart { position: relative; height: 260px; }
+.wg-customers { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow: auto; }
+.wg-cust { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; width: 100%; text-align: left; background: transparent; border: 0; padding: 8px; border-radius: 7px; }
+.wg-cust:hover, .wg-cust.active { background: var(--panel-2); }
+.wg-cust .name { font-weight: 600; }
+.wg-bar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; display: flex; }
+.wg-bar .ok { background: var(--ok); } .wg-bar .warn { background: var(--warn); } .wg-bar .bad { background: var(--bad); }
+.wg-ok { color: var(--ok); } .wg-warn { color: var(--warn); } .wg-bad { color: var(--bad); }
+
+.wg-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.wg-toolbar input { flex: 1 1 240px; width: auto; }
+.wg-toolbar select { width: auto; }
+.wg-table-wrap { overflow-x: auto; border-radius: 10px; }
+#wg-table th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+#wg-table th[data-sort]:hover { color: var(--text); }
+#wg-table th[data-sort]::after { content: " ↕"; opacity: .35; }
+#wg-table th[aria-sort="ascending"]::after { content: " ▲"; opacity: 1; }
+#wg-table th[aria-sort="descending"]::after { content: " ▼"; opacity: 1; }
+#wg-table > tbody > tr > td { vertical-align: top; }
+#wg-table > tbody > tr.s-critical > td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+#wg-table > tbody > tr.s-outdated > td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+#wg-table > tbody > tr.s-updated > td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+#wg-table > tbody > tr.open > td { border-bottom-color: transparent; }
+.wg-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.wg-vuln-toggle { background: none; border: 0; color: var(--muted); padding: 4px 0 0; }
+.wg-vuln-toggle:hover { color: var(--text); text-decoration: underline; }
+tr.wg-vuln-row > td { padding: 0 12px 14px; }
+tr.wg-vuln-row:hover { background: transparent; }
+tr.wg-vuln-row table { background: var(--bg); font-size: 13px; }
+tr.wg-vuln-row table td { vertical-align: top; }
+
+@media (max-width: 860px) {
+  .wg-row { grid-template-columns: 1fr; }
+}

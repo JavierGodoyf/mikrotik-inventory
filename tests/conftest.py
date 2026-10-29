@@ -10,3 +10,6 @@ os.environ["MTIK_DB_URL"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ["MTIK_KEY_FILE"] = str(_TMP / "secret.key")
 os.environ["MTIK_SCHEDULER_ENABLED"] = "false"
 os.environ["MTIK_BASE_DIR"] = str(_TMP)
+# WatchGuard en modo demo y sin red: la sección se activa con equipos de ejemplo.
+os.environ["WG_DEMO"] = "1"
+os.environ["WG_PSIRT"] = "0"

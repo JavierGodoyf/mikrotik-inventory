@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}WatchGuard · MikroTik Inventory{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<section class="head">
+  <div>
+    <h1>WatchGuard</h1>
+    <p class="muted">
+      <span id="wg-meta">Cargando…</span> · lectura automática cada {{ interval_hours }} h
+      {% if next_run %}· próxima {{ next_run | local }}{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/watchguard/refresh">
+    <button class="primary" type="submit" id="wg-refresh">Actualizar ahora</button>
+  </form>
+</section>
+
+<div id="wg-alerts"></div>
+
+<section class="wg-kpis">
+  <div class="wg-kpi"><h3>Total de firewalls</h3><b id="k-total">–</b></div>
+  <div class="wg-kpi ok"><h3>Actualizados</h3><b id="k-ok">–</b></div>
+  <div class="wg-kpi warn"><h3>Desactualizados</h3><b id="k-out">–</b></div>
+  <div class="wg-kpi bad"><h3 id="k-crit-label">Con vulnerabilidad crítica</h3><b id="k-crit">–</b></div>
+  <div class="wg-kpi"><h3>Última versión Fireware</h3><div class="wg-versions mono" id="k-latest"></div></div>
+</section>
+
+<section class="wg-row">
+  <div class="wg-panel">
+    <h3>Porcentaje de actualización</h3>
+    <p class="muted small">Pulsa una porción para filtrar la tabla.</p>
+    <div class="wg-chart"><canvas id="wg-pie"></canvas></div>
+  </div>
+  <div class="wg-panel">
+    <h3>Por cliente</h3>
+    <p class="muted small">Pulsa un cliente para ver solo sus equipos.</p>
+    <div class="wg-customers" id="wg-customers"></div>
+  </div>
+</section>
+
+<h2 id="wg-devices">Equipos</h2>
+<p class="muted small" id="psirt-info"></p>
+<div class="wg-toolbar">
+  <input id="q" type="search" placeholder="Buscar por cliente, nombre, modelo, serie o IP…">
+  <select id="f-status">
+    <option value="">Todos</option>
+    <option value="critical">Solo críticos</option>
+    <option value="outdated">Solo desactualizados</option>
+    <option value="updated">Solo actualizados</option>
+  </select>
+  <select id="f-customer"><option value="">Todos los clientes</option></select>
+  <button id="clear" type="button" hidden>Quitar filtros</button>
+  <button id="csv" type="button" title="Descarga los equipos visibles, con el filtro y el orden actuales">Exportar CSV</button>
+  <span class="muted small" id="shown"></span>
+</div>
+<div class="wg-table-wrap">
+  <table id="wg-table">
+    <thead><tr>
+      <th data-sort="status">Estado</th><th data-sort="customer">Cliente</th><th data-sort="name">Firewall</th><th data-sort="model">Modelo</th>
+      <th data-sort="version">Versión</th><th data-sort="latest">Actualizar a</th><th data-sort="vulns">Vulnerabilidades</th>
+      <th data-sort="state">Conexión</th><th data-sort="serial">Nº serie</th><th data-sort="ip">IP pública</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let data = null, chart = null, poll = null;
+  const sort = { key: null, dir: 1 };
+  const openVulns = new Set(); // equipos con las vulnerabilidades desplegadas (se mantienen al filtrar o recargar)
+
+  const STATUS = { updated: ['Actualizado', 'ok'], outdated: ['Desactualizado', 'warn'], critical: ['Crítico', 'bad'] };
+  const SEV = { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Info' };
+  const SEV_CSS = { critical: 'bad', high: 'high', medium: 'warn', low: 'muted', informational: 'muted' };
+  const BRANCH = { actual: 'Fireware 2025+', '12.x': 'Fireware 12.x', 'T15/T35': 'T15/T35 (12.5.x)' };
+  const STATES = { online: ['En línea', 'ok'], offline: ['Desconectado', 'bad'], 'never connected': ['Nunca conectado', 'warn'], inactive: ['Inactivo', 'muted'] };
+  const PIE_STATUS = ['updated', 'outdated', 'critical'];
+
+  const stateText = (s) => (STATES[s] || [s || '—'])[0];
+  const stateLabel = (s) => `<span class="badge ${(STATES[s] || [, 'muted'])[1]}">${esc(stateText(s))}</span>`;
+  const sevPill = (a) => `<span class="badge ${SEV_CSS[a.severity] || 'muted'}">${SEV[a.severity] || esc(a.severity)}${a.score ? ' ' + esc(a.score) : ''}</span>`;
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('es-ES') : '—');
+
+  // Igual que compare_versions en app/watchguard/psirt.py: se ignoran los sufijos de build.
+  function compareVersions(a, b) {
+    const parse = (v) => String(v || '').replace(/[+-].*|\.B\d+$/i, '').match(/\d+/g)?.map(Number) || [];
+    const pa = parse(a), pb = parse(b);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  }
+  const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+  const vulnScore = (d) => (d.counts.critical || 0) * 1e6 + (d.counts.high || 0) * 1e4 + (d.counts.medium || 0) * 100 + (d.counts.low || 0);
+  const SORTERS = {
+    status: (a, b) => PIE_STATUS.indexOf(a.status) - PIE_STATUS.indexOf(b.status),
+    version: (a, b) => compareVersions(a.version, b.version),
+    latest: (a, b) => compareVersions(a.latest, b.latest),
+    vulns: (a, b) => vulnScore(a) - vulnScore(b),
+    state: (a, b) => collator.compare(stateText(a.state), stateText(b.state)),
+  };
+
+  function renderChart() {
+    const { updated, outdated, critical, total } = data.totals;
+    if (chart) chart.destroy();
+    chart = new Chart($('wg-pie'), {
+      type: 'pie',
+      data: {
+        labels: ['Actualizados', 'Desactualizados', 'Críticos'],
+        datasets: [{ data: [updated, outdated, critical], backgroundColor: [css('--ok'), css('--warn'), css('--bad')], borderColor: css('--panel'), borderWidth: 3 }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        onClick: (_, els) => {
+          if (!els.length) return;
+          const st = PIE_STATUS[els[0].index];
+          $('f-status').value = $('f-status').value === st ? '' : st;
+          renderTable();
+          $('wg-devices').scrollIntoView({ behavior: 'smooth' });
+        },
+        onHover: (e, els) => { e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+        plugins: {
+          legend: { position: 'bottom', labels: { color: css('--text'), font: { size: 12 } } },
+          tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw} (${total ? Math.round((c.raw / total) * 100) : 0}%)` } },
+        },
+      },
+      plugins: [{
+        // Porcentaje dibujado dentro de cada porción.
+        id: 'pct',
+        afterDatasetsDraw(ch) {
+          const { ctx } = ch;
+          ch.getDatasetMeta(0).data.forEach((arc, i) => {
+            const v = ch.data.datasets[0].data[i];
+            if (!v || !total) return;
+            const p = arc.tooltipPosition();
+            ctx.save();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 15px system-ui';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(Math.round((v / total) * 100) + '%', p.x, p.y);
+            ctx.restore();
+          });
+        },
+      }],
+    });
+  }
+
+  function renderCustomers() {
+    // Agrupado por ID de cuenta: dos clientes con el mismo nombre no se mezclan.
+    const by = {};
+    for (const d of data.devices) {
+      by[d.customerId] ??= { id: d.customerId, name: d.customer, total: 0, updated: 0, outdated: 0, critical: 0 };
+      by[d.customerId].total++;
+      by[d.customerId][d.status]++;
+    }
+    const score = (c) => (c.critical * 2 + c.outdated) / c.total;
+    const list = Object.values(by).sort((a, b) => score(b) - score(a) || collator.compare(a.name, b.name));
+    const w = (n, t) => (n / t) * 100 + '%';
+    const cur = $('f-customer').value;
+    $('wg-customers').innerHTML = list.map((c) => `
+      <button type="button" class="wg-cust${c.id === cur ? ' active' : ''}" data-id="${esc(c.id)}"><span class="name">${esc(c.name)}</span>
+        <span class="muted small">${c.updated}/${c.total} actualizados${c.outdated ? ` · ${c.outdated} desact.` : ''}${c.critical ? ` · <b class="wg-bad">${c.critical} crítico(s)</b>` : ''}</span>
+        <span class="wg-bar"><span class="ok" style="width:${w(c.updated, c.total)}"></span><span class="warn" style="width:${w(c.outdated, c.total)}"></span><span class="bad" style="width:${w(c.critical, c.total)}"></span></span>
+      </button>`).join('') || '<span class="muted small">Sin datos</span>';
+
+    $('f-customer').innerHTML = '<option value="">Todos los clientes</option>' +
+      [...list].sort((a, b) => collator.compare(a.name, b.name))
+        .map((c) => `<option value="${esc(c.id)}"${c.id === cur ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+  }
+
+  function renderPsirtInfo() {
+    const p = data.psirt;
+    $('psirt-info').innerHTML = !p.enabled
+      ? 'Consulta de vulnerabilidades desactivada (WG_PSIRT=0).'
+      : `Vulnerabilidades según <a href="https://psirt.watchguard.com/" target="_blank" rel="noopener">psirt.watchguard.com</a> · ${p.advisories} avisos de Fireware` +
+        (p.fetchedAt ? ` · consultado ${when(p.fetchedAt)}` : '');
+  }
+
+  // Fila a todo lo ancho, bajo el equipo, con todas sus vulnerabilidades de más a menos grave
+  // (el servidor ya las envía ordenadas).
+  function vulnRow(d) {
+    const items = d.advisories.map(({ id, fix }) => {
+      const a = data.advisories[id] || { severity: 'informational' };
+      return `<tr>
+        <td class="nowrap">${sevPill(a)}</td>
+        <td class="nowrap mono"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(id)}</a></td>
+        <td>${esc(a.summary)}</td>
+        <td class="nowrap mono">${fix ? esc(fix) : '<span class="badge bad">Sin corrección</span>'}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <tr class="wg-vuln-row s-${d.status}"><td colspan="10">
+        <table class="compact">
+          <thead><tr><th>Gravedad</th><th>Aviso</th><th>Descripción</th><th>Corregido en</th></tr></thead>
+          <tbody>${items}</tbody>
+        </table>
+      </td></tr>`;
+  }
+
+  // Equipos visibles con el filtro y el orden actuales (lo mismo que se exporta a CSV).
+  function visibleRows() {
+    const q = $('q').value.toLowerCase(), st = $('f-status').value, cu = $('f-customer').value;
+    const rows = data.devices.filter((d) =>
+      (!st || d.status === st) &&
+      (!cu || d.customerId === cu) &&
+      (!q || [d.customer, d.name, d.model, d.serial, d.ip, d.version].join(' ').toLowerCase().includes(q)));
+    if (sort.key) {
+      const cmp = SORTERS[sort.key] || ((a, b) => collator.compare(a[sort.key] ?? '', b[sort.key] ?? ''));
+      rows.sort((a, b) => cmp(a, b) * sort.dir);
+    }
+    return rows;
+  }
+
+  function renderTable() {
+    const rows = visibleRows();
+    const filtered = $('q').value || $('f-status').value || $('f-customer').value;
+    $('clear').hidden = !filtered;
+    $('shown').textContent = filtered ? `${rows.length} de ${data.devices.length} equipos` : `${rows.length} equipos`;
+    document.querySelectorAll('.wg-cust').forEach((el) => el.classList.toggle('active', el.dataset.id === $('f-customer').value));
+    document.querySelectorAll('#wg-table > thead th[data-sort]').forEach((th) => {
+      if (th.dataset.sort === sort.key) th.setAttribute('aria-sort', sort.dir > 0 ? 'ascending' : 'descending');
+      else th.removeAttribute('aria-sort');
+    });
+
+    $('rows').innerHTML = rows.map((d) => {
+      const [label, cls] = STATUS[d.status];
+      const chips = ['critical', 'high', 'medium', 'low']
+        .filter((s) => d.counts[s]).map((s) => `<span class="badge ${SEV_CSS[s]}">${d.counts[s]} ${SEV[s].toLowerCase()}</span>`).join('');
+      const n = d.advisories.length, open = n && openVulns.has(d.id);
+      const toggle = n ? `<button type="button" class="wg-vuln-toggle" data-id="${esc(d.id)}" aria-expanded="${open}">${open ? '▾ Ocultar' : '▸ Ver'} ${n} vulnerabilidad${n === 1 ? '' : 'es'}</button>` : '';
+      const target = d.status === 'updated' ? '<span class="wg-ok">✓ al día</span>' : `<span class="mono wg-warn">${esc(d.latest)}</span>`;
+      return `
+      <tr class="s-${d.status}${open ? ' open' : ''}">
+        <td class="nowrap"><span class="badge ${cls}">${label}</span></td>
+        <td>${esc(d.customer)}</td><td class="nowrap"><strong>${esc(d.name)}</strong></td><td class="nowrap">${esc(d.model)}</td>
+        <td class="nowrap mono">${esc(d.version)}</td><td class="nowrap">${target}</td>
+        <td>${n ? `<div class="wg-chips">${chips}</div>${toggle}` : '<span class="muted small">Ninguna conocida</span>'}</td>
+        <td class="nowrap">${stateLabel(d.state)}</td>
+        <td class="nowrap mono">${esc(d.serial)}</td><td class="nowrap mono">${esc(d.ip)}</td>
+      </tr>${open ? vulnRow(d) : ''}`;
+    }).join('') || '<tr><td colspan="10" class="muted">No hay equipos que coincidan.</td></tr>';
+  }
+
+  function exportCsv() {
+    // Separador ";" y BOM UTF-8 para que Excel en español lo abra con columnas y acentos correctos.
+    const cell = (v) => {
+      let s = String(v ?? '');
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // evita que Excel lo interprete como fórmula
+      return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const head = ['Estado', 'Cliente', 'Firewall', 'Modelo', 'Versión', 'Actualizar a', 'Críticas', 'Altas', 'Medias', 'Bajas', 'Avisos', 'Conexión', 'Nº serie', 'IP pública'];
+    const lines = visibleRows().map((d) => [
+      STATUS[d.status][0], d.customer, d.name, d.model, d.version, d.status === 'updated' ? 'Al día' : d.latest,
+      d.counts.critical || 0, d.counts.high || 0, d.counts.medium || 0, d.counts.low || 0,
+      d.advisories.map((a) => a.id).join(' '), stateText(d.state), d.serial, d.ip,
+    ]);
+    const csv = '﻿' + [head, ...lines].map((r) => r.map(cell).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `firewalls-watchguard-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function load() {
+    clearTimeout(poll);
+    try {
+      const res = await fetch('/api/watchguard');
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || res.statusText);
+
+      const alerts = [];
+      if (json.running) alerts.push('<div class="flash">Leyendo WatchGuard Cloud… la página se actualizará sola.</div>');
+      if (json.stale) alerts.push(`<div class="verdict bad"><b>La última lectura (${when(json.lastAttemptAt)}) falló.</b><p>${esc(json.lastError)}</p>${json.checkedAt ? '<p>Se muestran los últimos datos obtenidos.</p>' : ''}</div>`);
+      if (json.psirt?.error) alerts.push(`<div class="verdict warn"><b>No se pudieron leer los avisos de WatchGuard.</b><p>${esc(json.psirt.error)}. ${json.psirt.advisories ? 'Se usan los últimos avisos obtenidos.' : 'Se usa la versión más alta detectada en tus equipos.'}</p></div>`);
+      if (json.errors?.length) alerts.push(`<div class="verdict warn"><b>No se pudieron leer ${json.errors.length} cuenta(s).</b><p>${json.errors.map((e) => esc(e.customer)).join(', ')}</p></div>`);
+      $('wg-alerts').innerHTML = alerts.join('');
+      $('wg-refresh').disabled = json.running;
+      if (json.running) poll = setTimeout(load, 4000);
+
+      if (!json.checkedAt) {
+        $('wg-meta').textContent = json.running ? 'Primera lectura en curso' : 'Sin datos todavía';
+        return;
+      }
+      data = json;
+      $('wg-meta').textContent = `Datos de ${when(data.checkedAt)}` + (data.demo ? ' · MODO DEMO' : '');
+      $('k-total').textContent = data.totals.total;
+      $('k-ok').textContent = data.totals.updated;
+      $('k-out').textContent = data.totals.outdated;
+      $('k-crit').textContent = data.totals.critical;
+      $('k-crit-label').textContent = data.alertSeverity === 'high' ? 'Con vulnerabilidad alta o crítica' : 'Con vulnerabilidad crítica';
+      $('k-latest').innerHTML = Object.entries(data.latest)
+        .sort((a, b) => Object.keys(BRANCH).indexOf(a[0]) - Object.keys(BRANCH).indexOf(b[0]))
+        .map(([b, v]) => `<div title="${esc(v.source)}"><span class="muted">${esc(BRANCH[b] || b)}</span><strong>${esc(v.version)}</strong></div>`).join('') || '—';
+      renderChart(); renderCustomers(); renderPsirtInfo(); renderTable();
+    } catch (e) {
+      $('wg-alerts').innerHTML = `<div class="verdict bad"><b>Error al obtener datos</b><p>${esc(e.message)}</p></div>`;
+      if (!data) $('wg-meta').textContent = 'Sin datos';
+    }
+  }
+
+  ['q', 'f-status', 'f-customer'].forEach((id) => $(id).addEventListener('input', () => data && renderTable()));
+  $('wg-customers').addEventListener('click', (e) => {
+    const el = e.target.closest('.wg-cust');
+    if (!el) return;
+    $('f-customer').value = $('f-customer').value === el.dataset.id ? '' : el.dataset.id;
+    renderTable();
+    $('wg-devices').scrollIntoView({ behavior: 'smooth' });
+  });
+  document.querySelector('#wg-table > thead').addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th || !data) return;
+    // Primer clic ascendente, segundo descendente, tercero vuelve al orden por defecto.
+    if (sort.key !== th.dataset.sort) Object.assign(sort, { key: th.dataset.sort, dir: 1 });
+    else if (sort.dir > 0) sort.dir = -1;
+    else sort.key = null;
+    renderTable();
+  });
+  $('rows').addEventListener('click', (e) => {
+    const btn = e.target.closest('.wg-vuln-toggle');
+    if (!btn) return;
+    if (!openVulns.delete(btn.dataset.id)) openVulns.add(btn.dataset.id);
+    renderTable();
+  });
+  $('clear').addEventListener('click', () => {
+    $('q').value = ''; $('f-status').value = ''; $('f-customer').value = '';
+    renderTable();
+  });
+  $('csv').addEventListener('click', () => data && exportCsv());
+  load();
+  setInterval(load, 5 * 60 * 1000);
+</script>
+{% endblock %}
