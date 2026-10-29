@@ -8,8 +8,14 @@ services:
       # Solo accesible desde el propio host. Para verlo desde otro sitio,
       # usa un túnel SSH o Tailscale en vez de abrir 0.0.0.0.
       - "127.0.0.1:8000:8000"
+    # Credenciales WG_* de WatchGuard (opcional). "environment" manda sobre este archivo.
+    env_file:
+      - path: .env
+        required: false
     environment:
       TZ: ${TZ:-Europe/Madrid}
+      # Dentro del contenedor siempre 0.0.0.0, aunque el .env diga 127.0.0.1 (el host sigue atado a 127.0.0.1).
+      MTIK_HOST: "0.0.0.0"
       MTIK_CHECK_INTERVAL_HOURS: "6"
       MTIK_SCHEDULER_ENABLED: "true"
     volumes:

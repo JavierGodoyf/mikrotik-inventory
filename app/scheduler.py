@@ -6,6 +6,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from .checker import check_all
 from .config import get_settings
+from .watchguard import service as watchguard
+from .watchguard.config import get_wg_settings
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -25,6 +27,17 @@ def start() -> None:
         coalesce=True,
         next_run_time=datetime.now() + timedelta(seconds=45),
     )
+    wg = get_wg_settings()
+    if wg.active:
+        _scheduler.add_job(
+            watchguard.refresh,
+            trigger="interval",
+            hours=wg.interval_hours,
+            id="wg-refresh",
+            max_instances=1,
+            coalesce=True,
+            next_run_time=datetime.now() + timedelta(seconds=15),
+        )
     _scheduler.start()
 
 
@@ -35,8 +48,8 @@ def shutdown() -> None:
         _scheduler = None
 
 
-def next_run() -> datetime | None:
+def next_run(job_id: str = "check-all") -> datetime | None:
     if _scheduler is None:
         return None
-    job = _scheduler.get_job("check-all")
+    job = _scheduler.get_job(job_id)
     return job.next_run_time if job else None
